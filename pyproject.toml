@@ -36,5 +36,5 @@ dependencies = [
 
 [project.scripts]
 # Easy app start
-satalyze = "magic:start"
+satalyze-start = "satalyze:start"
 

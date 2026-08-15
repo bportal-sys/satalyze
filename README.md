@@ -9,7 +9,7 @@ Welcome to Satalyze! This library provides an end-to-end automated pipeline for 
 You can install the library directly from your terminal:
 
 ```bash
-pip install Sata_Pipeline
+pip install satalyze
 ```
 
 ---
@@ -22,7 +22,7 @@ There are **two ways** to interact with this pipeline depending on your workflow
 Import the core orchestrator class directly into your scripts or Jupyter Notebooks to run automated batches:
 
 ```python
-from Sata_Pipeline import SatelliteTrafficPipeline
+from satalyze import SatelliteTrafficPipeline
 
 # Initialize the pipeline
 traffic_pipeline = SatelliteTrafficPipeline(project_id="satalyze") # REPLACE 'satalyze' with your project ID.
@@ -40,10 +40,10 @@ traffic_pipeline.run(
 If you prefer a visual interface, launch the built-in Streamlit dashboard. It includes an interactive map with an integrated address search bar, date pickers, and visual counters:
 
 ```python
-import Sata_Pipeline
+import satalyze
 
 # Launch the visual dashboard interface
-Sata_Pipeline.start()
+satalyze.start()
 ```
 
 ---

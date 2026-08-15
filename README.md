@@ -40,10 +40,9 @@ traffic_pipeline.run(
 If you prefer a visual interface, launch the built-in Streamlit dashboard. It includes an interactive map with an integrated address search bar, date pickers, and visual counters:
 
 ```python
-import satalyze
 
 # Launch the visual dashboard interface
-satalyze.start()
+satalyze-start
 ```
 
 ---

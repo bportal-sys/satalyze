@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Satalyze"
+version = "0.1.0"
+description = "A powerful pipeline for satellite traffic analysis using YOLO and SAHI."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "AGPL-3.0-only" }
+license-files = ["LICENSE"]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)"
+]
+
+# These are the external tools needed
+dependencies = [
+    "streamlit>=1.61.1",
+    "streamlit-folium>=0.27.4",
+    "folium>=0.2.0",    
+    "numpy>=2.4.6",
+    "pandas>=3.0.3",
+    "Pillow>=12.2.0",
+    "earthengine-api>=1.7.38",
+    "requests>=2.25.0",
+    "opencv-python>=4.5.0",
+    "ultralytics>=8.4.53",
+    "sahi>=0.12.5",
+    "matplotlib>=3.4.0"
+]
+
+[tool.setuptools.package-data]
+# Models
+"Sata_Pipeline" = ["models/*"]
+
+[project.scripts]
+# Easy app start
+satalyze = "magic:start"
+

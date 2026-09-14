@@ -64,7 +64,7 @@ Pipe[Pipeline Controller <br>Abstract Classes / Plug-and-Play]
 
     class User user;
     class UI ui;
-    class Pipe,GEE,Sentinel,YF core;
+    class Pipe,GEE,YF core;
     class DB,ImgCache data;
     class YOLO ml;
 

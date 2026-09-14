@@ -4,7 +4,7 @@ Welcome to Satalyze! This library provides an end-to-end automated pipeline for 
 
 ---
 
-'''mermaid
+```mermaid
 graph TD
 %% Elements
 User([User])
@@ -68,7 +68,7 @@ Pipe[Pipeline Controller <br>Abstract Classes / Plug-and-Play]
     class DB,ImgCache data;
     class YOLO ml;
 
-'''
+```
 
 ## Installation
 

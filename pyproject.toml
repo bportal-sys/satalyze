@@ -4,37 +4,62 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Satalyze"
-version = "0.1.0"
-description = "A powerful pipeline for satellite traffic analysis using YOLO and SAHI."
+version = "0.1.4"
+description = "Using satellite parking lot imagery analysis via YOLO and SAHI to explore financial metrics and generate elusive Alpha"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "AGPL-3.0-only" }
+license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
-classifiers = [
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)"
+authors = [
+    {name = "bportal-sys", email = "fromdigitalsuccess@gmail.com"}
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+
 
 # These are the external tools needed
 dependencies = [
-    "streamlit>=1.61.1",
-    "streamlit-folium>=0.27.4",
-    "folium>=0.2.0",    
-    "numpy>=2.4.6",
-    "pandas>=3.0.3",
-    "Pillow>=12.2.0",
-    "earthengine-api>=1.7.38",
-    "requests>=2.25.0",
+    # Core Vision & Satellite Framework
+    "numpy>=1.22.0,<2.0.0",
+    "pandas>=1.5.0,<2.2.0",
+    "Pillow>=9.0.0",
+    "earthengine-api>=0.1.350",
     "opencv-python>=4.5.0",
-    "ultralytics>=8.4.53",
-    "sahi>=0.12.5",
-    "matplotlib>=3.4.0"
-]
+    "ultralytics>=8.0.0",
+    "sahi>=0.11.0",
+    "matplotlib>=3.4.0",
+    # "folium>=0.14.0",
 
-[tool.setuptools.package-data]
-# Models
-"Sata_Pipeline" = ["models/*"]
+    # UI Frameworks
+    # "streamlit>=1.20.0",
+    # "streamlit-folium>=0.11.0",
+    "shiny>=1.0.0",
+    "shinywidgets>=0.3.0",
+    "ipyleaflet>=0.17.0",
+
+    # FastAPI Backend & Async
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.22.0",
+    "requests>=2.25.0",
+    "httpx>=0.24.0",
+    "nest-asyncio>=1.5.0",
+
+    # Database & Finance
+    "aiosqlite>=0.19.0",
+    "yfinance>=0.2.30"
+]
 
 [project.scripts]
 # Easy app start
-satalyze-start = "satalyze:start"
+satalyze-start = "satalyze:launch_dashboard"
+
+[tool.setuptools.packages.find]
+exclude = ["tenv*"] 
+
+[tool.setuptools.package-data]
+# Models
+satalyze = ["models/*"]
 

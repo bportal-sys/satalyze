@@ -39,6 +39,9 @@ from sahi.predict import get_sliced_prediction
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ===============================
 # Ml enhancement (preprocessing)

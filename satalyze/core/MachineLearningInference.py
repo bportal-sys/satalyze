@@ -41,6 +41,9 @@ import matplotlib.pyplot as plt
 import os
 from .MLEnhancements import ML_Enhancements
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ===============================================
 # Abstract class for Machine learning Interface layers
@@ -52,9 +55,11 @@ class MachineLearningInference(ABC):
         """Mormalized input to allow both saved images and numpy arrays"""
         if isinstance(source_input, str):
             if not os.path.exists(source_input):
+                logger.exception(f'No local file found under {source_input}')
                 raise FileNotFoundError(f'No local file found under {source_input}')
             img = cv2.imread(source_input)
             if img is None:
+                logger.exception(f'Failed to decode image at path {source_input}')
                 raise ValueError(f'Failed to decode image at path {source_input}')
             return img
         elif isinstance(source_input, np.ndarray):
@@ -63,10 +68,11 @@ class MachineLearningInference(ABC):
             bgr_img = cv2.cvtColor(source_input, cv2.COLOR_RGB2BGR)
             return bgr_img.copy()
         else: 
+            logger.exception("Source must be string path or valid numpy array")
             raise TypeError("Source must be string path or valid numpy array")
 
     @abstractmethod
-    def detect_vehicles(self, image_souce: Union[str, np.ndarray], confidence:float) -> Dict:
+    def detect_vehicles(self, image_source: Union[str, np.ndarray], confidence:float) -> Dict:
         """Placeholder for detecting vehicles | main ML inference layer"""
         pass
 

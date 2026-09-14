@@ -38,14 +38,17 @@ from sahi.predict import get_sliced_prediction
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
-from .SaveLabeledImg import LabelImage_Save
+import logging
+
+logger = logging.getLogger(__name__)
 
 #===========================================================
 # Visualization engine
 class MachineLearning_Visualization:
     """Draws geometric masks/text on pixel canvases"""
-    def __init__(self, label_dir: str = 'labelled_imgs'):
-        self.saver = LabelImage_Save(label_dir=label_dir)
+    def __init__(self):
+        pass
+        
 
     def _normalize_image(self, image_source: np.ndarray):
         if isinstance(image_source, str):
@@ -110,7 +113,7 @@ class MachineLearning_Visualization:
         cv2.putText(canvas, text_overlay, (15, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
 
-    def generate_labeled_image(self, image_source: np.ndarray, ml_output: Dict, metadata: dict, save_image: bool = True, stamp_meta: bool = False) -> dict:
+    def generate_labeled_image(self, image_source: np.ndarray, ml_output: Dict, metadata: dict, stamp_meta: bool = False) -> dict:
         canvas = self._normalize_image(image_source=image_source)    
         
         predictions = ml_output['predictions_to_draw']
@@ -123,13 +126,9 @@ class MachineLearning_Visualization:
             self._draw_metadata_banner(canvas, text_overlay)
 
         final_disk_path = None
-        if save_image:
-            save_filename = self.saver._generate_asset_identifier(metadata)
-            final_disk_path = self.saver._write_assets_to_disk(save_filename, canvas)
 
         rgb_canvas=cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
         
         return {
             "image_array": rgb_canvas,
-            "saved_file_path": final_disk_path
         }

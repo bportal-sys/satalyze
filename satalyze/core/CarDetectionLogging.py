@@ -18,26 +18,12 @@
 # must prominently display "Powered by github.com/bportal-sys".
 
 
-import io
 import os
-import json
-import numpy as np
 import pandas as pd
-from PIL import Image
-import time
-from datetime import datetime
-import ee 
-from abc import ABC, abstractmethod
-import requests
-import math 
-import cv2
 from typing import Union, List, Dict
-from ultralytics import YOLO
-from sahi import AutoDetectionModel
-from sahi.predict import get_sliced_prediction
-import pandas as pd
-import matplotlib.pyplot as plt
-import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CarDetectionLogging:
     """store Dataframe information"""
@@ -53,6 +39,7 @@ class CarDetectionLogging:
         capture_date = raw_capture_date.split(" ")[0]
         pixel_size = metadata['pixel_size']
         min_lon, min_lat, max_lon, max_lat = metadata['bounding_box']
+
         center_lat = (min_lat + max_lat) / 2.0
         center_lon = (min_lon + max_lon) / 2.0 
         return {'capture_date': capture_date,
@@ -60,6 +47,12 @@ class CarDetectionLogging:
                 'center_lon': center_lon,
                 'pixel_size': pixel_size
                 }
+
+    def _generate_site_id(self, lat: float, lon: float) -> str:
+        """Generates site_id for db insertion | Placed to 3 decimal places to try to bring together images if image in wrong spot force_erewrite"""
+        lat_str = f"{float(lat):.3f}".replace('.', 'o')
+        lon_str = f"{float(lon):.3f}".replace('.', 'o')
+        return f"SITE_{lat_str}_{lon_str}"
 
     def log_detection(self, metadata: Dict, car_count: int):
         """Plugs directly into the pipeline loop to save a single image record."""
@@ -72,7 +65,8 @@ class CarDetectionLogging:
             "date": pd.to_datetime(capture_date),
             "longitude": lon,
             "latitude": lat,
-            "car_count": int(car_count)
+            "car_count": int(car_count),
+            "year": int(capture_date.split("-")[0])
         }
         self._buffer.append(record)
         self.df = pd.DataFrame(self._buffer)
@@ -80,6 +74,11 @@ class CarDetectionLogging:
     def get_dataframe(self) -> pd.DataFrame:
         """Returns the full gathered dataset."""
         return self.df
+    
+    def clear_buffer(self) -> None:
+        """purges active memory"""
+        self._buffer = []
+        self.df = pd.DataFrame()
 
     def save_to_csv(self, file_path: str = "car_detections.csv", append: bool = True):
         """
@@ -90,18 +89,17 @@ class CarDetectionLogging:
         append=False -> Overwrites the file or creates a brand-new one.
         """
         if self.df.empty:
-            print("No data to save.")
+            logger.warning("No data to save.")
             return
 
         # Check if file exists and we want to append
         if append and os.path.exists(file_path):
             # Append mode ('a'). Do not write the header
             self.df.to_csv(file_path, mode='a', header=False, index=False)
-            print(f"Successfully ADDED records to existing file: {file_path}")
+            logger.info(f"Successfully ADDED records to existing file: {file_path}")
         else:
             # Write mode ('w'). Create a new file or overwrite
-            print(f"Successfully CREATED/OVERWRITTEN file: {file_path}")
+            self.df.to_csv(file_path, mode = 'w', header = True, index = False)
+            logger.info(f"Successfully CREATED/OVERWRITTEN file: {file_path}")
             
-        # Clear memory buffer
-        self._buffer = []
-        self.df = pd.DataFrame()
+        self.clear_buffer()

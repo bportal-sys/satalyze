@@ -38,6 +38,10 @@ from sahi.predict import get_sliced_prediction
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 # ==================================
 # Metadata Processor 
 class SatelliteMetadataProcessor:
@@ -47,10 +51,10 @@ class SatelliteMetadataProcessor:
         """Gets timestamp of capture time from metadata"""
         timestamp_ms = metadata_info['properties'].get('system:time_start')
         if not timestamp_ms:
-            print('Warning, unknown flight date')
+            logger.warning('Warning, unknown flight date')
             return "Unknown Flight Date"
         
-        return datetime.fromtimestamp(timestamp_ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.fromtimestamp(timestamp_ms / 1000.0).strftime('%Y-%m-%d')
         
 
     @staticmethod

@@ -20,44 +20,66 @@
 
 
 import os
+import asyncio
+import numpy as np
 import pandas as pd
 from PIL import Image
-from IPython.display import display
 import matplotlib.pyplot as plt
 from pathlib import Path
+from typing import Dict, Optional, List
+from datetime import datetime
+
 from .SatelliteProvider import GoogleEarthEngineProvider
 from .MachineLearningInference import MachineInference_YOLO_Provider_Single
 from .ML_Visualization import MachineLearning_Visualization
 from .CarDetectionLogging import CarDetectionLogging
+from .SatalyzeDatabase import SatalyzeDatabaseManager
+from .Cache_r import SatalyzeCache_r
+from .AssetWriter import SatalyzeAssetWriter
+from .FinancialMetricsSata import FinancialDataManager
+from .StrategyViews import SatalyzeStrategyResolver
+
 from .DF_Plotter import CarTrafficPlotter
 from .DF_Plotter import CyberpunkFuturisticTheme
 from .DF_Plotter import CleanClassicTheme
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 
 class SatelliteTrafficPipeline:
     """
-    Main Orchestrator Class that stitches together GEE Cloud downloading,
-    YOLO Inference, Data Logging, Disk Asset Saving, and Swappable Plotting.
+    Main class that combines together GEE Cloud downloading,
+    YOLO Inference, Data Logging, Disk Asset Saving, and Plotting.
     """
-    def __init__(self, project_id: str = "satalyze", output_csv: str = "master_car_detections.csv"):
+
+
+    def __init__(self, project_id: str = "satalyze", db_path: str = "satalyze.db"):
         self.project_id = project_id
-        self.output_csv = output_csv
         
-        self.cache_dir = Path("satellite_cache")
-        self.labeled_dir = Path("labelled_imgs")
-        
-        # generate folders if applicable
-        self.cache_dir.mkdir(exist_ok=True)
-        self.labeled_dir.mkdir(exist_ok=True)
-        
-        self.provider = GoogleEarthEngineProvider(project_id=self.project_id)
-        self.ml_layer = MachineInference_YOLO_Provider_Single(apply_enhancements=False)
-        self.visualizer = MachineLearning_Visualization(label_dir="labelled_imgs")
-        
+        self.db = SatalyzeDatabaseManager(db_path = db_path)
         self.data_logger = CarDetectionLogging()
-        self.plotter = CarTrafficPlotter(theme=CyberpunkFuturisticTheme())
+        self.cache = SatalyzeCache_r(self.db, cache_dir='raw_image_cache', label_dir= 'label_image_cache')
+        self.writer = SatalyzeAssetWriter(self.db)
+        self.fin_manager = FinancialDataManager()
+        self.strategy_resolver = SatalyzeStrategyResolver(self.db)
 
-    def run(self, center_coordinates: list, start_date: str, end_date: str, limit: int = 5, save_to_csv: bool = True):
+        self.provider = None
+        self.ml_layer = None
+        self.visualizer = None
+        self.plotter = None
+
+    def inject_pipeline(self, provider = None, ml_layer = None, visualizer = None, plotter = None):    
+        # Allow passing components or gracefully drop down to standard initialized library anchors standardly
+        self.provider = provider if provider is not None else GoogleEarthEngineProvider(project_id=self.project_id)
+        self.ml_layer = ml_layer if ml_layer is not None else MachineInference_YOLO_Provider_Single(apply_enhancements=False)
+        self.visualizer = visualizer if visualizer is not None else MachineLearning_Visualization()
+        self.plotter = plotter if plotter is not None else CarTrafficPlotter(theme=CyberpunkFuturisticTheme())
+
+
+
+    async def app_run_async(self, center_coordinates: list, start_date: str, end_date: str, ticker: str, execution_mode: str = "SINGLE_STORE", asset_type: str='PUBLIC', limit: int = 5, force_refresh: bool = True, ignore_validators=False):
         """
         Executes the entire end-to-end pipeline run sequence.
         
@@ -65,169 +87,268 @@ class SatelliteTrafficPipeline:
         center_coordinates -> List [longitude, latitude]
         start_date         -> String format "YYYY-MM-DD"
         end_date           -> String format "YYYY-MM-DD"
+        execution_mode     -> String: 'NATIONWIDE', "SINGLE_STORE', 'BATCH', 'COMPARISON'
         limit              -> Max number of images to pull and process
-        save_to_csv        -> Set True to write updates out to disk storage
+        force_refresh      -> Set True to force write updates
+        ignore_validators  -> dont touch unless you dare :)
         """
-        print(f"\nPIPELINE STARTING FOR COORDINATES: {center_coordinates}")
-        print(f"TIMEFRAME TARGETS: {start_date} -> {end_date}")
-        
-        # Connect to GEE
-        self.provider.connect()
-        
-        try:
-            # Download image payloads
-            payloads = self.provider.download_patch(
-                start_date=start_date, 
-                end_date=end_date, 
-                center=center_coordinates,
-                threshold=0.001,
-                limit=limit
-            )
+
+        logger.info(f"\nPIPELINE STARTING FOR COORDINATES: {center_coordinates}")
+        await self.db.init_db()
+        logger.info(f"TIMEFRAME TARGETS: {start_date} -> {end_date}")
+
+
+        if asset_type == "PRIVATE":
+            ticker_clean = "PRIVATE"
+            is_public_entity = False
+        else: 
+            ticker_clean = str(ticker).upper().strip()
+            is_public_entity = True
+
+        logger.info(f"Entity Classification -> is_public_entity: {is_public_entity} | Active Name: {ticker_clean}")
+
+        if isinstance(center_coordinates[0], list):
+            # If batch array containing an inner list context arrives
+            coord_target = center_coordinates[0]
+        else:
+            # If a single flat [lon, lat] array arrives
+            coord_target = center_coordinates
+
+        lon, lat = coord_target[0], coord_target[1]
+
+        self.ml_layer.clear_ml_memory()
+        self.data_logger.clear_buffer()
+#        site_id = self.data_logger._generate_site_id(lat=lat, lon=lon)
+
+        work_list = center_coordinates if execution_mode in ["BATCH_FLEET", "COMPARE"] else [center_coordinates]
+
+
+        financial_exists = False
+
+        if is_public_entity:
+            combined_db = await self.db.fetch_combined_raw_data()
+
+            if not combined_db.empty and 'ticker' in combined_db.columns:
+                has_ticker = ticker_clean in combined_db['ticker'].values
+                has_real_financial_data = combined_db['total_revenue'].notna().any() if 'total_revenue' in combined_db.columns else False
+                financial_exists = has_ticker and has_real_financial_data
+            else:
+                financial_exists = False
+
+            logger.info(f'Status for {ticker_clean}: {financial_exists}')
+
+            if not financial_exists or force_refresh:
+                logger.info(f"Scraping {ticker_clean}")
+                try:
+                    fin_df = await self.fin_manager.get_annual_metrics_async(ticker_str = ticker_clean, start_date=start_date, end_date=end_date)
+                    if fin_df is None:
+                        logger.warning(f"None for {ticker_clean}")
+                    elif fin_df.empty:
+                        logger.warning(f'Empty df for {ticker_clean}')
+                    else:
+                        fin_df.columns = fin_df.columns.str.replace('"', "").str.replace("'", "").str.strip()
+                        await self.db.save_financial_dataframe(fin_df)
+                        logger.info(f"Financial metric saved to sqlite")
+                except: 
+                    logger.exception(f"Failed while scraping {ticker_clean}")
+                    fin_df = pd.DataFrame()
+        else: 
+            logger.info(f"Private asset detected skipping financials")
+
+        fleet_site_ids = []
+        raw_images, labeled_images = [], []
+
+        for current_coord in work_list:
+            lat, lon = current_coord[0], current_coord[1]
+            site_id = self.data_logger._generate_site_id(lat = lat, lon = lon)
+            fleet_site_ids.append(site_id)
             
-            total_images = len(payloads)
+            start_year = int(start_date.split("-")[0])
+            await self.db.assign_site_to_lot(ticker = ticker_clean, year = start_year, site_id = site_id, lat = lat, lon = lon)
+
+            try:
+                # Connect to GEE
+                self.provider.connect()
+                batch_meta, aoi, calculated_bbox, ground_metrics, pixel_size = self.provider.get_image_catalog(
+                    start_date=start_date, end_date=end_date, center=current_coord, limit=limit, ignore_validators = ignore_validators
+                )
+            except Exception:
+                logger.exception(f"Failed to fetch catalog image for {current_coord}")
+                continue
+            
+
+            total_images = len(batch_meta)
             if total_images == 0:
-                print("PIPELINE ALERTER: Zero valid imagery datasets located. Aborting.")
-                return None
-                
-            print(f"INGESTION LOG: Retrieved {total_images} active imagery patch(es).")
-
-            # Analysis single pass
-            for idx, patch in enumerate(payloads):
-                print(f"\n[Processing Patch {idx + 1}/{total_images}]")
-                metadata = patch['metadata']
-                image_canvas = patch['image_array']
-                
-                #ml layer
-                ml_report = self.ml_layer.detect_vehicles(image_canvas, confidence=0.01)
-                detected_cars = ml_report['primary_count']
-                print(f" -> Computer Vision Metric: Found {detected_cars} items.")
-                
-                #entry into DataFrame buffer
-                self.data_logger.log_detection(
-                    metadata=metadata, 
-                    car_count=detected_cars
-                )
-               
-                # box canvas export
-                render_results = self.visualizer.generate_labeled_image(
-                    image_source=image_canvas, 
-                    ml_output=ml_report, 
-                    metadata=metadata,
-                    save_image=True,
-                )
-                
-                # Display
-                display(Image.fromarray(render_results["image_array"]))
-                print("-" * 50)
-
-            # tables and save
-            compiled_dataframe = self.data_logger.get_dataframe()
-            print("\nPIPELINE RUN COMPLETED. GENERATED TABLE:")
-            print(compiled_dataframe)
-            
-            if save_to_csv:
-                self.data_logger.save_to_csv(file_path=self.output_csv, append=False)
-            
-            #plotting 
-            chart_title = f"Telemetry Log // Target: {center_coordinates}"
-            self.plotter.plot_timeline_from_dataframe(df=compiled_dataframe, title=chart_title)
-            
-            return compiled_dataframe
-
-        except Exception as e:
-            print(f"\nCRITICAL PIPELINE CRASH FAILURE: {e}")
-            return None
-        
+                logger.warning(f"! Zero images found")
+                continue
 
 
-    def app_run(self, center_coordinates: list, start_date: str, end_date: str, limit: int = 5, save_to_csv: bool = True):
-        """
-        Executes the entire end-to-end pipeline run sequence.
-        
-        Parameters:
-        center_coordinates -> List [longitude, latitude]
-        start_date         -> String format "YYYY-MM-DD"
-        end_date           -> String format "YYYY-MM-DD"
-        limit              -> Max number of images to pull and process
-        save_to_csv        -> Set True to write updates out to disk storage
-        """
-        print(f"\nPIPELINE STARTING FOR COORDINATES: {center_coordinates}")
-        print(f"TIMEFRAME TARGETS: {start_date} -> {end_date}")
-        
-        # Connect to GEE
-        self.provider.connect()
-        
+            for img_meta in batch_meta:
+                exact_capture_date = self.provider.metadata_processor.extract_capture_date(img_meta)
+                capture_year = int(exact_capture_date.split("-")[0])
+
+                raw_path, label_path = self.cache.generate_paths(exact_capture_date, lat, lon, pixel_size)
+
+                condition, db_record = await self.cache.resolve_condition(raw_path, label_path, force_refresh)
+
+                if condition == 1: 
+                    logger.info(f"Condition 1 skipping GEE and YOLO call for {exact_capture_date}")
+                    raw_canvas = np.array(Image.open(raw_path))
+                    label_canvas = np.array(Image.open(label_path))
+                    cars = int(db_record['car_count'])
+
+                else:
+                    if condition == 2:
+                        logger.info(f"Condition 2 Raw image found skipping GEE call for {exact_capture_date}")
+                        raw_canvas = np.array(Image.open(raw_path))
+
+                    else:
+                        logger.info(f"Condition {condition} | Sending out API call(s)")
+                        raw_canvas = self.provider.get_patch(img_meta, aoi, pixel_size)
+
+                    ml_report = self.ml_layer.detect_vehicles(raw_canvas, confidence=0.01)
+                    cars = ml_report['primary_count']
+                    
+                    metadata_package = {"capture_date": exact_capture_date, "pixel_size": pixel_size, "bounding_box": calculated_bbox}
+                    render_results = self.visualizer.generate_labeled_image(
+                        image_source= raw_canvas, ml_output=ml_report, metadata=metadata_package,
+                    )
+                    label_canvas = render_results["image_array"]
+
+                    await self.writer.save_pipeline_observation(
+                        raw_canvas = raw_canvas, label_canvas = label_canvas, raw_path = raw_path, label_path = label_path,
+                        site_id = site_id, year = capture_year, car_count = cars, lat = lat, lon = lon, date = exact_capture_date
+                    )
+
+                    await self.db.assign_site_to_lot(
+                        ticker = ticker_clean, year = capture_year, site_id=site_id, lat = lat, lon = lon 
+                    )
+
+                self.data_logger.log_detection({"capture_date": exact_capture_date, "pixel_size":pixel_size, "bounding_box":calculated_bbox}, cars)
+                raw_images.append(raw_canvas)
+                labeled_images.append(label_canvas)
+
+
+        # Strategy resolution routing
+        if execution_mode == "NATIONWIDE" and is_public_entity:
+            display_df = await self.strategy_resolver.execute_nationwide(ticker_clean)
+        elif execution_mode == "SINGLE_STORE":
+            display_df = await self.strategy_resolver.execute_single_store(fleet_site_ids, ticker_clean)
+        elif execution_mode == "COMPARE":
+            display_df = await self.strategy_resolver.execute_comparison(list(set(fleet_site_ids)))
+        else:
+            display_df = await self.strategy_resolver.execute_batch_fleet(fleet_site_ids, ticker_clean)
+
+        if display_df is not None and not display_df.empty:
+            display_df.columns = display_df.columns.str.replace('"','').str.replace("'","").str.strip()
+
+            if 'ticker' in display_df.columns:
+                if is_public_entity:
+                    display_df['ticker'] = display_df['ticker'].astype(str).str.upper().str.strip()
+                    display_df = display_df[display_df['ticker'] == ticker_clean]
+                else: 
+                    display_df['ticker'] = "PRIVATE"
+                    for fin_col in ['total_revenue', 'capex','gross_ppe']:
+                        if fin_col in display_df.columns:
+                            display_df[fin_col] = 'N/A'
+
+            display_df = display_df.reset_index(drop=True)
+
+            if 'year' in display_df.columns:
+                display_df['year'] = pd.to_numeric(display_df['year'],errors='coerce')
+                start_yr = int(start_date.split("-")[0])
+                end_yr = int(end_date.split("-")[0])
+                display_df = display_df[(display_df['year']>= start_yr) & (display_df['year']<=end_yr)]
+
+                display_df = display_df.drop_duplicates()
+    
+        # --- CLEAN ABSTRACTED PLOTTER CALL ---
         try:
-            # Download image payloads
-            payloads = self.provider.download_patch(
-                start_date=start_date, 
-                end_date=end_date, 
-                center=center_coordinates,
-                threshold=0.001,
-                limit=limit
-            )
+            financial_df = await self.db.fetch_combined_raw_data()
+            logger.info(f"Combined raw db empty status: {financial_df.empty}")
+            if financial_df is not None and not financial_df.empty:
+                financial_df.columns = financial_df.columns.str.replace("'","").str.replace('"',"").str.strip()
+                if 'year' in financial_df.columns:
+                    financial_df['year'] = pd.to_numeric(financial_df['year'],errors='coerce')
+                    start_yr = int(start_date.split("-")[0])
+                    end_yr = int(end_date.split("-")[0])
+                    financial_df = financial_df[(financial_df['year']>= start_yr) & (financial_df['year']<=end_yr)]
+        except Exception:
+            logger.exception(f"Failed to read combined df")
+            financial_df = pd.DataFrame()
+
+
+        # ==========================================================
+        # 🪵 DIAGNOSTIC LOG: See exactly what is getting passed to the plotter
+        # ==========================================================
+        logger.info("==================================================")
+        logger.info("  FINAL PLOTTER INGESTION PROFILER (Sata_Pipeline) ")
+        logger.info("==================================================")
+        logger.info(f" -> Active UI Target Ticker: '{ticker_clean}'")
+        logger.info(f" -> Asset Classification Type: is_public_entity={is_public_entity}")
+        
+        if display_df is not None and not display_df.empty:
+            logger.info(f" -> Total Rows passing to chart engine: {len(display_df)}")
+            logger.info(f" -> Columns visible to plotter: {list(display_df.columns)}")
             
-            total_images = len(payloads)
-            if total_images == 0:
-                print("PIPELINE ALERTER: Zero valid imagery datasets located. Aborting.")
-                return None
+            # Print unique values in indexing columns to trap cross-contamination bugs
+            if 'ticker' in display_df.columns:
+                logger.info(f" -> Unique tickers inside DataFrame: {display_df['ticker'].unique()}")
+            if 'date' in display_df.columns:
+                logger.info(f" -> Unique dates inside DataFrame: {display_df['date'].unique()}")
                 
-            print(f"INGESTION LOG: Retrieved {total_images} active imagery patch(es).")
-
-            raw_images = []
-            labeled_images = []
-
-            # Analysis single pass
-            for idx, patch in enumerate(payloads):
-                print(f"\n[Processing Patch {idx + 1}/{total_images}]")
-                metadata = patch['metadata']
-                image_canvas = patch['image_array']
-
-                raw_images.append(image_canvas)
-                
-                #ml_layer
-                ml_report = self.ml_layer.detect_vehicles(image_canvas, confidence=0.01)
-                detected_cars = ml_report['primary_count']
-                print(f" -> Computer Vision Metric: Found {detected_cars} items.")
-                
-                #parameters into DataFrame buffer
-                self.data_logger.log_detection(
-                    metadata=metadata, 
-                    car_count=detected_cars
+            logger.info("\n Raw DataFrame Payload Matrix Snapshot:")
+            # Capture up to 20 rows of the payload to track the exact data structure
+            for idx, row in display_df.head(20).iterrows():
+                logger.info(
+                    f"    [{idx}] Date: {row.get('date')} | Year: {row.get('year')} | "
+                    f"Ticker: {row.get('ticker')} | Site: {row.get('site_id')} | "
+                    f"Cars: {row.get('car_count')} | Rev: {row.get('total_revenue')}"
                 )
-               
-                #box canvas
-                render_results = self.visualizer.generate_labeled_image(
-                    image_source=image_canvas, 
-                    ml_output=ml_report, 
-                    metadata=metadata,
-                    save_image=True,
-                )
-                
-                # Display
-                labeled_images.append(render_results["image_array"])
+        else:
+            logger.warning(" -> ⚠️ CRITICAL WARNING: The DataFrame passing to the plotter is completely EMPTY!")
+        logger.info("==================================================")
 
-            # tables and save
-            compiled_dataframe = self.data_logger.get_dataframe()
-            print("\nPIPELINE RUN COMPLETED. GENERATED TABLE:")
-            print(compiled_dataframe)
-            
-            if save_to_csv:
-                self.data_logger.save_to_csv(file_path=self.output_csv, append=True)
-            
-            # plotting 
-            chart_title = f"Telemetry Log Target: {center_coordinates}"
-            self.plotter.plot_timeline_from_dataframe(df=compiled_dataframe, title=chart_title)
-            
-            fig = plt.gcf()
+        # Just pass everything to the helper function!
+        fig = self.plotter.generate_mode_plot(
+            execution_mode=execution_mode,
+            ticker_clean=ticker_clean,
+            traffic_df=self.data_logger.get_dataframe(),
+            display_df=display_df,
+            financial_df=display_df
+        )
 
-            return {
-                'dataframe': compiled_dataframe,
-                'unlabeled': raw_images,
-                'labeled': labeled_images,
-                'figure': fig
-            }
+        return {
+            'dataframe': display_df,
+            'unlabeled': raw_images,
+            'labeled': labeled_images,
+            'figure': fig
+        }
 
-        except Exception as e:
-            print(f"\nCRITICAL PIPELINE CRASH FAILURE: {e}")
-            return None
+############    
+        # compiled_dataframe = self.data_logger.get_dataframe()
+        # if not compiled_dataframe.empty:
+        #     self.plotter.plot_timeline_from_dataframe(df=compiled_dataframe, title = f"Target: {ticker_clean} Timeline Log")
+        # fig = plt.gcf()
+        
+
+        # return {
+        #     'dataframe': display_df,
+        #     'unlabeled': raw_images,
+        #     'labeled': labeled_images,
+        #     'figure': fig
+        # }
+
+    def app_run(self, *args, **kwargs) -> Optional[Dict]:
+        """For thing like streamlit"""
+        try: 
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        if loop.is_running():
+            import nest_asyncio
+            nest_asyncio.apply()
+            return loop.run_until_complete(self.app_run_async(*args, **kwargs))
+        return loop.run_until_complete(self.app_run_async(*args, **kwargs))

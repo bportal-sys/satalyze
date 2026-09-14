@@ -19,26 +19,15 @@
 
 
 
-import io
-import os
-import json
-import numpy as np
-import pandas as pd
 from PIL import Image
-import time
 from datetime import datetime
-import ee 
 from abc import ABC, abstractmethod
-import requests
 import math 
-import cv2
 from typing import Union, List, Dict
-from ultralytics import YOLO
-from sahi import AutoDetectionModel
-from sahi.predict import get_sliced_prediction
-import pandas as pd
-import matplotlib.pyplot as plt
-import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # ================================
 # Validation Class
@@ -67,7 +56,8 @@ class GeospatialValidator:
         
         elif bbox is not None:
             return bbox
-        else: 
+        else:
+            logger.warning("No bounding box provided") 
             raise ValueError("No bounding box provided")
 
     def check_spatial_bounds(self, calculated_bbox: list) -> None:
@@ -77,6 +67,7 @@ class GeospatialValidator:
         lat_height = abs(max_lat - min_lat)
 
         if lon_width > self.max_degree_span or lat_height > self.max_degree_span:
+            logger.warning(f"Bounding Box too big. Current span ({round(lon_width, 4)}) | Allowable span ({self.max_degree_span})")
             raise ValueError(f"Bounding Box too big. Current span ({round(lon_width, 4)}) | Allowable span ({self.max_degree_span})")
 
     def check_time_bounds(self, start_date: str, end_date: str) -> None:
@@ -86,11 +77,13 @@ class GeospatialValidator:
         days_requested = (d2 - d1).days
 
         if days_requested > self.max_days_range:
+            logger.warning(f"Time Horizon too big. Current span ({days_requested}) | Allowable span ({self.max_days_range})")
             raise ValueError(f"Time Horizon too big. Current span ({days_requested}) | Allowable span ({self.max_days_range})")
 
     def check_quota_limit(self, current_calls: int) -> None:
         """Self-imposed API execution limits to prevent runaway code eating EECU-seconds"""
         if current_calls >= self.max_daily_calls: 
+            logger.warning(f"Personal Quota Reached: Local limit of {self.max_daily_calls}")
             raise PermissionError(f"Personal Quota Reached: Local limit of {self.max_daily_calls}")
         
     def check_ground_scale_safety(self, dimensions_dict: dict) -> None:
@@ -98,6 +91,7 @@ class GeospatialValidator:
         w = dimensions_dict['width_meters']
         h = dimensions_dict['height_meters']
         if w > self.max_allowable_meters or h > self.max_allowable_meters:
+            logger.warning(f"Requested area too large for ML ({round(w)})m x ({round(h)})m | Allowable ground distance ({self.max_allowable_meters})m x ({self.max_allowable_meters})m")
             raise ValueError(
                 f"Requested area too large for ML ({round(w)})m x ({round(h)})m | Allowable ground distance ({self.max_allowable_meters})m x ({self.max_allowable_meters})m"
             )
@@ -119,4 +113,5 @@ class GeospatialValidator:
     def check_multi_limit(self, limit: int) -> None:
         """Checks limit number for multi image API call"""
         if limit > self.max_multi_limit:
+            logger.warnning(f'Multi Limit exceeded: {limit} | Allowed {self.max_multi_limit}. Enable bypass flag or lower limit')
             raise ValueError(f'Multi Limit exceeded: {limit} | Allowed {self.max_multi_limit}. Enable bypass flag or lower limit')

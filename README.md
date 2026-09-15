@@ -1,6 +1,8 @@
 # Satalyze
 
-Welcome to Satalyze! This library provides an end-to-end automated pipeline for downloading cloud satellite imagery, processing it via computer vision, combining financial metrics insights, and generating vehicle tracking telemetry logs.
+Automate financial data reporting and compare against 'real life' car traffic trends in parking lots for an alternative data source to drive investment decisions. 
+
+Analyze satellite images of parking lots. This library provides an end-to-end automated pipeline for downloading cloud satellite imagery(Google Earth Engine), processing it via computer vision(YOLOv8), logging and combining financial metrics insights, and generating alternate data from vehicle traffic tracking.
 
 ---
 
